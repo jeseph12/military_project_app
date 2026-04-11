@@ -33,7 +33,7 @@ button:active { background: #2563eb; }
 .btn-edit { background:#e5e7eb; color:#374151; width:auto; padding:6px 16px; border-radius:6px; font-size:13px; margin-right: 4px;}
 .btn-delete { background:#fee2e2; color:#ef4444; width:auto; padding:6px 16px; border-radius:6px; font-size:13px; }
 
-/* 네비게이션 바 (3개 메뉴로 수정) */
+/* 네비게이션 바 */
 .bottom-nav {
   position:fixed; bottom:0; left:0; width:100%; display:flex; background:white;
   border-top:1px solid #ddd; padding-bottom: env(safe-area-inset-bottom); z-index: 900;
@@ -47,7 +47,9 @@ button:active { background: #2563eb; }
 }
 .modal-box { background:white; width:90%; max-width:400px; padding:20px; border-radius:12px; position:relative; }
 .close { position:absolute; right:16px; top:16px; cursor:pointer; font-size: 18px; }
-.status-board { background: #e0f2fe; padding: 12px; border-radius: 8px; margin-top: 10px; font-weight: bold; color: #0369a1; text-align: center; }
+
+.status-board { background: #e0f2fe; padding: 12px; border-radius: 8px; margin-top: 10px; font-weight: bold; color: #0369a1; text-align: center; font-size: 14px; }
+.link-text { color: #3b82f6; cursor: pointer; font-weight: bold; text-decoration: underline; text-underline-offset: 4px; }
 
 /* 체크리스트 전용 스타일 */
 .group-header { background: #f1f5f9; padding: 10px; border-radius: 8px; font-weight: bold; margin-top: 16px; display:flex; align-items:center; }
@@ -66,13 +68,12 @@ button:active { background: #2563eb; }
     <span class="close" onclick="closePersonModal()">✖</span>
     <h3 id="modalTitle" style="margin-top:0;">인원 추가</h3>
     <input id="p_name" placeholder="이름 (예: 홍길동)">
-    <input id="p_role" placeholder="보직 (예: 대형운전병)">
+    <input id="p_role" placeholder="보직 (예: 소총수)">
     <select id="p_status">
       <option>근무</option>
       <option>휴가</option>
       <option>파견</option>
       <option>외출/외박</option>
-      <option>운행</option>
     </select>
     <input id="p_note" placeholder="특이사항 (선택)">
     <button id="modalActionBtn" onclick="savePerson()" style="margin-top: 16px;">추가하기</button>
@@ -89,7 +90,7 @@ button:active { background: #2563eb; }
 </div>
 
 <script>
-// 본인의 Firebase 정보로 교체하세요.
+// ★ 본인의 Firebase 정보로 교체하세요.
 const firebaseConfig = {
   apiKey: "AIzaSyCPWFIf5ZsHU49hKMue6MS7VX9YIA87QFs",
   authDomain: "military-project-906b0.firebaseapp.com",
@@ -99,7 +100,6 @@ const firebaseConfig = {
   appId: "1:1049208073496:web:f9f0cd7dd0735e90e4426d",
   measurementId: "G-3HXS86VSKH"
 };
-
 
 if (!firebase.apps.length) {
     firebase.initializeApp(firebaseConfig);
@@ -111,8 +111,8 @@ let currentGroup = null;
 let currentEditId = null; 
 let currentPeopleData = {}; 
 
-let currentBoardId = null; // 체크리스트용
-let currentNoteItemId = null; // 특이사항 수정용
+let currentBoardId = null; 
+let currentNoteItemId = null; 
 
 // 리스너 관리
 let groupsListener = null;
@@ -120,6 +120,7 @@ let myGroupsListener = null;
 let peopleListener = null;
 let boardsListener = null;
 let boardItemsListener = null;
+let favPeopleListener = null; // 즐겨찾기 통합 현황용 리스너
 
 function clearListeners() {
   if (groupsListener) { groupsListener(); groupsListener = null; }
@@ -127,16 +128,35 @@ function clearListeners() {
   if (peopleListener) { peopleListener(); peopleListener = null; }
   if (boardsListener) { boardsListener(); boardsListener = null; }
   if (boardItemsListener) { boardItemsListener(); boardItemsListener = null; }
+  if (favPeopleListener) { favPeopleListener(); favPeopleListener = null; }
 }
 
-/* 로그인 */
+/* -------------------------------------------
+   인증 (로그인 & 회원가입 & 로그아웃)
+------------------------------------------- */
 function renderLogin(){
   clearListeners();
   app.innerHTML=`
-    <h2>로그인</h2>
+    <h2 style="text-align:center; margin-top:40px;">소대 관리 로그인</h2>
     <input id="email" type="email" placeholder="이메일">
     <input id="pw" type="password" placeholder="비밀번호">
     <button onclick="login()">로그인</button>
+    <div style="text-align:center; margin-top:20px; font-size:14px;">
+      아직 계정이 없으신가요? <span class="link-text" onclick="renderSignup()">회원가입 하기</span>
+    </div>
+  `;
+}
+
+function renderSignup(){
+  clearListeners();
+  app.innerHTML=`
+    <h2 style="text-align:center; margin-top:40px;">새 계정 만들기</h2>
+    <input id="email" type="email" placeholder="사용할 이메일">
+    <input id="pw" type="password" placeholder="비밀번호 (6자리 이상)">
+    <button onclick="signup()">가입하기</button>
+    <div style="text-align:center; margin-top:20px; font-size:14px;">
+      이미 계정이 있으신가요? <span class="link-text" onclick="renderLogin()">로그인 하기</span>
+    </div>
   `;
 }
 
@@ -147,11 +167,27 @@ function login(){
       .catch(err => alert("로그인 실패: " + err.message));
 }
 
+function signup(){
+  if(!email.value || !pw.value) return alert("이메일과 비밀번호를 입력해주세요.");
+  auth.createUserWithEmailAndPassword(email.value, pw.value)
+      .then(() => {
+        alert("회원가입이 완료되었습니다!");
+        renderHome();
+      })
+      .catch(err => alert("회원가입 실패: " + err.message));
+}
+
+function logout(){
+  if(confirm("로그아웃 하시겠습니까?")) {
+    auth.signOut();
+  }
+}
+
 auth.onAuthStateChanged(user => {
   if (user) { renderHome(); } else { renderLogin(); }
 });
 
-/* 네비게이션 (게시판 추가됨) */
+/* 네비게이션 */
 function nav(){
   return `
   <div class="bottom-nav">
@@ -162,15 +198,17 @@ function nav(){
 }
 
 /* -------------------------------------------
-   1. 기존 기능: 소대, 즐겨찾기, 인원 관리
+   소대 목록 관리
 ------------------------------------------- */
-
 function renderHome(){
   if(!auth.currentUser) return renderLogin();
   clearListeners();
   
   app.innerHTML=`
-    <h2>소대 목록</h2>
+    <div class="row">
+      <h2>소대 목록</h2>
+      <span onclick="logout()" style="font-size:12px; color:#888; cursor:pointer; text-decoration:underline;">로그아웃</span>
+    </div>
     <div style="display:flex; gap:8px;">
       <input id="g" placeholder="새 소대 이름">
       <button onclick="addGroup()" style="width:80px; margin-top:8px;">생성</button>
@@ -205,6 +243,9 @@ function deleteGroup(id){
   if(confirm('이 그룹을 정말 삭제하시겠습니까?')) db.collection('groups').doc(id).delete();
 }
 
+/* -------------------------------------------
+   내 즐겨찾기 통합 관리
+------------------------------------------- */
 function addMy(name){
   db.collection('myGroups').add({ user: auth.currentUser.email, group: name })
     .then(() => alert('즐겨찾기에 추가되었습니다.'));
@@ -214,13 +255,21 @@ function renderMy(){
   if(!auth.currentUser) return renderLogin();
   clearListeners();
   
-  app.innerHTML=`<h2>내 즐겨찾기</h2><div id="list"></div>`+nav();
+  app.innerHTML=`
+    <h2>내 즐겨찾기 통합 현황</h2>
+    <div id="favStatus" class="status-board" style="margin-bottom:16px;">현황을 불러오는 중...</div>
+    <h3 style="margin-top:24px; font-size:16px; color:#444;">즐겨찾기 그룹 목록</h3>
+    <div id="list"></div>
+  `+nav();
 
   myGroupsListener = db.collection('myGroups')
   .where('user','==',auth.currentUser.email).onSnapshot(snap=>{
     list.innerHTML='';
+    const myGroupNames = [];
+
     snap.forEach(doc=>{
       const d=doc.data();
+      myGroupNames.push(d.group);
       const div=document.createElement('div'); div.className='card';
       div.innerHTML=`
         <div class="row">
@@ -230,12 +279,41 @@ function renderMy(){
       div.onclick = () => openGroup(d.group);
       list.appendChild(div);
     });
+
+    // 즐겨찾기 그룹의 인원 데이터를 실시간으로 합산하여 현황판에 표시
+    if(favPeopleListener) { favPeopleListener(); favPeopleListener = null; }
+
+    if(myGroupNames.length === 0) {
+        document.getElementById('favStatus').innerText = "즐겨찾기한 소대가 없습니다.";
+        return;
+    }
+
+    favPeopleListener = db.collection('people').onSnapshot(peopleSnap => {
+        let total=0, work=0, leave=0, dispatch=0, out=0;
+        peopleSnap.forEach(pDoc => {
+            const p = pDoc.data();
+            if(myGroupNames.includes(p.group)){
+                total++;
+                if(p.status==='근무') work++;
+                else if(p.status==='휴가') leave++;
+                else if(p.status==='파견') dispatch++;
+                else if(p.status==='외출/외박') out++;
+            }
+        });
+        const favStatusBoard = document.getElementById('favStatus');
+        if(favStatusBoard) {
+            favStatusBoard.innerText = `총원 ${total}명 | 현재원 ${work}명 | 휴가 ${leave}명 | 파견 ${dispatch}명 | 출타 ${out}명`;
+        }
+    });
   });
 }
 function removeMy(id){
   if(confirm('즐겨찾기에서 해제하시겠습니까?')) db.collection('myGroups').doc(id).delete();
 }
 
+/* -------------------------------------------
+   소대 내부 인원 관리 (CRUD)
+------------------------------------------- */
 function openGroup(name){
   clearListeners();
   currentGroup=name;
@@ -292,6 +370,7 @@ function openGroup(name){
 
 function openPersonModal(){ document.getElementById('personModal').style.display='flex'; }
 function closePersonModal(){ document.getElementById('personModal').style.display='none'; }
+
 function openAdd(){ 
   currentEditId = null; 
   document.getElementById('modalTitle').innerText = '인원 추가';
@@ -329,10 +408,8 @@ function deletePerson(id, name){
 }
 
 /* -------------------------------------------
-   2. 신규 기능: 게시판 (체크리스트) 관리
+   게시판 (체크리스트) 관리
 ------------------------------------------- */
-
-// 게시판 메인 화면 (목록 보기)
 function renderBoards(){
   if(!auth.currentUser) return renderLogin();
   clearListeners();
@@ -343,7 +420,6 @@ function renderBoards(){
     <div id="boardList"></div>
   `+nav();
 
-  // 내가 속한 혹은 만든 게시판 목록 (단순화를 위해 전체 게시판 노출, 필요시 필터링 가능)
   boardsListener = db.collection('boards').orderBy('createdAt', 'desc').onSnapshot(snap=>{
     boardList.innerHTML='';
     snap.forEach(doc=>{
@@ -360,13 +436,11 @@ function renderBoards(){
 }
 
 function deleteBoard(id){
-  if(confirm('이 체크리스트 게시판을 삭제하시겠습니까? 내부 데이터도 삭제됩니다.')){
+  if(confirm('이 체크리스트 게시판을 삭제하시겠습니까? 내부 데이터도 함께 지워집니다.')){
     db.collection('boards').doc(id).delete();
-    // (선택) boardItems에 있는 해당 보드 데이터들도 지워주는 것이 좋음
   }
 }
 
-// 새 체크리스트 만들기 화면 (그룹 선택 및 인원 다중 선택)
 function renderCreateBoardUI(isAddingMode = false, boardId = null){
   clearListeners();
   const title = isAddingMode ? '인원 추가하기' : '새 체크리스트 만들기';
@@ -387,7 +461,6 @@ function renderCreateBoardUI(isAddingMode = false, boardId = null){
     <button onclick="saveChecklistData(${isAddingMode}, '${boardId}')" style="margin-bottom: 20px;">${btnText}</button>
   `;
 
-  // 1. 즐겨찾기 그룹명 가져오기
   db.collection('myGroups').where('user', '==', auth.currentUser.email).get().then(snap => {
     const myGroupNames = [];
     snap.forEach(doc => myGroupNames.push(doc.data().group));
@@ -397,7 +470,6 @@ function renderCreateBoardUI(isAddingMode = false, boardId = null){
       return;
     }
 
-    // 2. 전체 인원 중 내 즐겨찾기에 속한 인원만 렌더링
     db.collection('people').get().then(peopleSnap => {
       let groupedPeople = {};
       peopleSnap.forEach(doc => {
@@ -410,7 +482,6 @@ function renderCreateBoardUI(isAddingMode = false, boardId = null){
 
       let html = '';
       for(let gName in groupedPeople) {
-        // 그룹별 전체선택 체크박스
         html += `
           <div class="group-header">
             <input type="checkbox" id="chkAll_${gName}" onchange="toggleGroupChecks(this, '${gName}')" style="width:18px;height:18px;margin:0 8px 0 0;">
@@ -418,7 +489,6 @@ function renderCreateBoardUI(isAddingMode = false, boardId = null){
           </div>
           <div id="groupDiv_${gName}" style="padding-left:10px;">
         `;
-        // 개별 인원 체크박스
         groupedPeople[gName].forEach(p => {
           const personDataStr = encodeURIComponent(JSON.stringify({ id: p.id, name: p.name, group: p.group }));
           html += `
@@ -435,13 +505,11 @@ function renderCreateBoardUI(isAddingMode = false, boardId = null){
   });
 }
 
-// 그룹별 전체선택 토글 함수
 function toggleGroupChecks(allCheckbox, groupName){
   const checkboxes = document.querySelectorAll(`.cb_${groupName}`);
   checkboxes.forEach(cb => cb.checked = allCheckbox.checked);
 }
 
-// 체크리스트 생성 및 인원 일괄 저장 로직
 function saveChecklistData(isAddingMode, existingBoardId){
   let b_name = '';
   if(!isAddingMode){
@@ -452,15 +520,13 @@ function saveChecklistData(isAddingMode, existingBoardId){
   const selectedCbs = document.querySelectorAll('.person-cb:checked');
   if(selectedCbs.length === 0) return alert('최소 1명 이상의 인원을 선택해주세요.');
 
-  const batch = db.batch(); // 여러 데이터를 한 번에 저장하기 위한 batch
+  const batch = db.batch(); 
 
   if(!isAddingMode){
-    // 1. 게시판 생성
     db.collection('boards').add({ 
       name: b_name, 
       createdAt: firebase.firestore.FieldValue.serverTimestamp() 
     }).then(boardRef => {
-      // 2. 인원들 리스트 생성
       selectedCbs.forEach(cb => {
         const pInfo = JSON.parse(decodeURIComponent(cb.value));
         const itemRef = db.collection('boardItems').doc();
@@ -469,7 +535,6 @@ function saveChecklistData(isAddingMode, existingBoardId){
       batch.commit().then(() => renderBoards());
     });
   } else {
-    // 기존 게시판에 인원 추가
     selectedCbs.forEach(cb => {
       const pInfo = JSON.parse(decodeURIComponent(cb.value));
       const itemRef = db.collection('boardItems').doc();
@@ -479,7 +544,6 @@ function saveChecklistData(isAddingMode, existingBoardId){
   }
 }
 
-// 체크리스트 게시판 내부 보기
 function openBoard(boardId, boardName){
   clearListeners();
   currentBoardId = boardId;
@@ -498,14 +562,12 @@ function openBoard(boardId, boardName){
     <div id="checklistArea" style="background:#fff; border-radius:12px; box-shadow:0 2px 4px rgba(0,0,0,0.05); padding:10px;"></div>
   `+nav();
 
-  // 제목을 다시 불러오는 방어 코드 (인원 추가 후 돌아왔을 때 대비)
   if(!boardName) {
     db.collection('boards').doc(boardId).get().then(doc => {
       document.getElementById('currentBoardTitle').innerText = doc.data().name;
     });
   }
 
-  // 해당 게시판의 인원 리스트 로드
   boardItemsListener = db.collection('boardItems').where('boardId', '==', boardId).onSnapshot(snap=>{
     checklistArea.innerHTML = '';
     
@@ -537,17 +599,13 @@ function openBoard(boardId, boardName){
   });
 }
 
-// 체크박스 상태 토글
 function toggleCheckItem(itemId, isChecked){
   db.collection('boardItems').doc(itemId).update({ isChecked });
 }
-
-// 체크리스트 개별 삭제
 function deleteCheckItem(itemId){
   if(confirm('이 인원을 명단에서 제외하시겠습니까?')) db.collection('boardItems').doc(itemId).delete();
 }
 
-// 특이사항 작성 모달 창 관리
 function openNoteModal(itemId, currentNote){
   currentNoteItemId = itemId;
   document.getElementById('n_note').value = currentNote;
@@ -561,11 +619,6 @@ function saveChecklistNote(){
   db.collection('boardItems').doc(currentNoteItemId).update({ note: noteVal })
     .then(closeNoteModal);
 }
-
-// 초기 실행
-auth.onAuthStateChanged(user => {
-  if (user) { renderHome(); } else { renderLogin(); }
-});
 </script>
 </body>
 </html>
